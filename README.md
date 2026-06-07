@@ -2,7 +2,7 @@
 
 A high-performance work-stealing task scheduler in modern C++20, with benchmarks.
 
-> Work in progress — building incrementally. See `PROJECT_PLAN.md` for the roadmap.
+> Work in progress — building incrementally. See `docs/PROJECT_PLAN.md` for the roadmap.
 
 ## Building
 
