@@ -1,48 +1,58 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
+#include <future>
+#include <memory>
 #include <mutex>
-#include <queue>
 #include <stop_token>
 #include <thread>
+#include <type_traits>
+#include <utility>
 #include <vector>
+
+#include "task_scheduler/work_stealing_queue.hpp"
 
 namespace ts {
 
-// A fixed-size pool of worker threads that execute submitted tasks.
-// Phase 2: one shared queue, no work-stealing and no return values yet.
 class TaskScheduler {
 public:
-    // Create a pool with `num_threads` workers.
-    // Defaults to the number of hardware threads the machine reports.
     explicit TaskScheduler(
         std::size_t num_threads = std::thread::hardware_concurrency());
-
-    // Stops all workers and joins them before the object is destroyed.
     ~TaskScheduler();
 
-    // A scheduler owns OS threads, so copying or moving it has no meaning.
     TaskScheduler(const TaskScheduler&) = delete;
     TaskScheduler& operator=(const TaskScheduler&) = delete;
     TaskScheduler(TaskScheduler&&) = delete;
     TaskScheduler& operator=(TaskScheduler&&) = delete;
 
-    // Hand a task to the pool; it runs on some worker thread.
-    void submit(std::function<void()> task);
+    template <typename F>
+    auto submit(F&& f) -> std::future<std::invoke_result_t<F>> {
+        using Result = std::invoke_result_t<F>;
+        auto task = std::make_shared<std::packaged_task<Result()>>(
+            std::forward<F>(f));
+        std::future<Result> result = task->get_future();
+        enqueue([task] { (*task)(); });
+        return result;
+    }
 
-    // Number of worker threads in the pool.
-    std::size_t size() const noexcept { return workers_.size(); }
+    std::size_t size() const noexcept { return queues_.size(); }
 
 private:
-    // The loop every worker thread runs until stop is requested.
-    void worker_loop(std::stop_token stoken);
+    void enqueue(std::function<void()> task);
+    void worker_loop(std::stop_token stoken, std::size_t index);
+    bool try_get_task(std::size_t index, std::function<void()>& task);
 
-    std::queue<std::function<void()>> tasks_;   // pending tasks
-    mutable std::mutex mutex_;                   // protects tasks_
-    std::condition_variable_any cv_;             // wakes idle workers
-    std::vector<std::jthread> workers_;          // declared LAST on purpose
+    std::vector<std::unique_ptr<WorkStealingQueue>> queues_;
+    std::mutex wait_mutex_;
+    std::condition_variable_any wait_cv_;
+    std::atomic<std::size_t> next_queue_{0};
+    std::vector<std::jthread> workers_;  // declared last: joined first
+
+    inline static thread_local TaskScheduler* this_pool_ = nullptr;
+    inline static thread_local std::size_t this_index_ = 0;
 };
 
 }  // namespace ts
