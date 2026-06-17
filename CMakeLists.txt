@@ -7,11 +7,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
 
-# The scheduler as a reusable library.
 add_library(task_scheduler src/task_scheduler.cpp)
 target_include_directories(task_scheduler PUBLIC include)
 target_link_libraries(task_scheduler PUBLIC Threads::Threads)
 
-# A small program to exercise the scheduler by hand.
 add_executable(demo src/demo.cpp)
 target_link_libraries(demo PRIVATE task_scheduler)
+
+enable_testing()
+add_executable(unit_tests tests/test_task_scheduler.cpp)
+target_link_libraries(unit_tests PRIVATE task_scheduler)
+add_test(NAME unit_tests COMMAND unit_tests)
