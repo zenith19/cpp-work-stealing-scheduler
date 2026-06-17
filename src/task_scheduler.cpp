@@ -43,7 +43,10 @@ bool TaskScheduler::try_get_task(std::size_t index,
     std::size_t n = queues_.size();
     for (std::size_t offset = 1; offset < n; ++offset) {
         std::size_t victim = (index + offset) % n;
-        if (queues_[victim]->steal(task)) return true; // then steal
+        if (queues_[victim]->steal(task)) {
+            steals_.fetch_add(1, std::memory_order_relaxed);
+            return true;
+        } // then steal
     }
     return false;
 }
