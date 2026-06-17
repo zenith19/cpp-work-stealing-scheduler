@@ -19,6 +19,8 @@ namespace ts {
 
 class TaskScheduler {
 public:
+    static constexpr std::size_t no_worker = static_cast<std::size_t>(-1);
+
     explicit TaskScheduler(
         std::size_t num_threads = std::thread::hardware_concurrency());
     ~TaskScheduler();
@@ -40,6 +42,18 @@ public:
 
     std::size_t size() const noexcept { return queues_.size(); }
 
+    // Index of the worker executing the calling code, or no_worker if the
+    // caller is not one of this pool's worker threads.
+    std::size_t current_worker() const noexcept {
+        return (this_pool_ == this) ? this_index_ : no_worker;
+    }
+
+    // Number of tasks acquired by stealing rather than from a worker's own
+    // queue. Useful for tests, demos, and tuning.
+    std::size_t steal_count() const noexcept {
+        return steals_.load(std::memory_order_relaxed);
+    }
+
 private:
     void enqueue(std::function<void()> task);
     void worker_loop(std::stop_token stoken, std::size_t index);
@@ -49,6 +63,7 @@ private:
     std::mutex wait_mutex_;
     std::condition_variable_any wait_cv_;
     std::atomic<std::size_t> next_queue_{0};
+    std::atomic<std::size_t> steals_{0};
     std::vector<std::jthread> workers_;  // declared last: joined first
 
     inline static thread_local TaskScheduler* this_pool_ = nullptr;
