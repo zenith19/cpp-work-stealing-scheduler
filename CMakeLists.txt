@@ -17,6 +17,9 @@ target_link_libraries(demo PRIVATE task_scheduler)
 add_executable(visual_demo src/visual_demo.cpp)
 target_link_libraries(visual_demo PRIVATE task_scheduler)
 
+add_executable(benchmark benchmarks/benchmark.cpp)
+target_link_libraries(benchmark PRIVATE task_scheduler)
+
 enable_testing()
 add_executable(unit_tests tests/test_task_scheduler.cpp)
 target_link_libraries(unit_tests PRIVATE task_scheduler)
