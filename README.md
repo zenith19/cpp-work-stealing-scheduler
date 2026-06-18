@@ -4,6 +4,7 @@ A high-performance, work-stealing task scheduler written in modern C++20.
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
+![CI](https://github.com/zenith19/cpp-work-stealing-scheduler/actions/workflows/ci.yml/badge.svg)
 
 Submit any callable, get a `std::future` back, and let a pool of worker threads
 run tasks in parallel — each worker drawing from its own queue and stealing from
