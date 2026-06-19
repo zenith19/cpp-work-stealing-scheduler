@@ -20,3 +20,23 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  thread-sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (ThreadSanitizer)
+        run: >
+          cmake -S . -B build-tsan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
+
+      - name: Build tests
+        run: cmake --build build-tsan --target unit_tests
+
+      - name: Run tests under ThreadSanitizer
+        run: ./build-tsan/unit_tests
+        env:
+          TSAN_OPTIONS: halt_on_error=1
