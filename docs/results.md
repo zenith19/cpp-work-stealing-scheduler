@@ -1,7 +1,8 @@
 # Benchmark results
 
-Hardware: Intel Core i7-1165G7 (4 physical cores / 8 threads), Linux, Release build (-O2).
-Workload: 4000 CPU-bound tasks, 100000 work-units each.
+Hardware: Intel Core i7-1165G7 (4 physical cores / 8 threads), Linux, GCC 13.3, CMake Release build.
+Workload: 4000 CPU-bound tasks, 100000 work-units each. Best of 3 runs per worker count.
+Speedup is relative to the same scheduler running with 1 worker.
 
 | workers | tasks/sec | speedup |
 |--------:|----------:|--------:|
@@ -12,4 +13,4 @@ Workload: 4000 CPU-bound tasks, 100000 work-units each.
 | 8       | 25101     | 6.17x   |
 
 Near-linear scaling to 4 workers (matching the 4 physical cores), with
-continued gains through 8 threads via hyper-threading.
+continued, smaller gains through 8 hardware threads (hyper-threading).

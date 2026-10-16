@@ -1,6 +1,6 @@
 # cpp-work-stealing-scheduler
 
-A high-performance, work-stealing task scheduler written in modern C++20.
+A work-stealing task scheduler written in modern C++20.
 
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)
@@ -8,7 +8,7 @@ A high-performance, work-stealing task scheduler written in modern C++20.
 
 Submit any callable, get a `std::future` back, and let a pool of worker threads
 run tasks in parallel — each worker drawing from its own queue and stealing from
-others when idle, so the cores stay busy and the queue never becomes a bottleneck.
+others when it runs out of work.
 
 ## Architecture
 
@@ -17,22 +17,21 @@ others when idle, so the cores stay busy and the queue never becomes a bottlenec
 The pool runs N worker threads, **each with its own task queue**. A worker takes
 work from its own queue (LIFO, keeping recently-created work hot in cache) and,
 when that queue runs dry, steals a task from another worker's queue (from the
-opposite end, FIFO). Because each queue has its own lock, workers only contend
-when they happen to touch the same queue — so the common case is contention-free,
-which is what lets the pool scale.
+opposite end, FIFO). Each queue has its own lock, so workers only contend on a
+lock when they touch the same queue.
 
 ## Features
 
 - **Work-stealing scheduler** — per-worker queues with stealing for load balancing.
 - **Futures** — `submit()` returns a `std::future<T>`; both results and exceptions
   propagate back to the caller.
-- **Modern C++20** — `std::jthread`, `std::stop_token`, concepts, and cooperative
-  cancellation throughout.
+- **Modern C++20** — `std::jthread`, `std::stop_token`, and a stop-token-aware
+  condition-variable wait for cooperative cancellation.
 - **Graceful shutdown** — queued tasks are drained before workers exit; threads
   join automatically via RAII.
 - **Observability** — `current_worker()` and `steal_count()` for introspection.
-- **Tested** — unit tests run through CTest and the scheduler is verified
-  race-free with ThreadSanitizer.
+- **Tested** — unit tests run through CTest, and CI also runs the suite under
+  ThreadSanitizer (no data races reported).
 
 ## Quick start
 
@@ -78,7 +77,10 @@ If a task throws, the exception is re-thrown when you call `.get()`.
 ## Benchmarks
 
 Measured on an Intel Core i7-1165G7 (4 physical cores / 8 threads), Linux,
-Release build (`-O2`). Workload: 4000 CPU-bound tasks.
+GCC 13.3, CMake Release build. Workload: 4000 CPU-bound tasks, each a
+100,000-iteration arithmetic loop. Each worker count is run 3 times and the
+best throughput is kept. Speedup is relative to the same scheduler running
+with 1 worker.
 
 ![Throughput scaling](docs/scaling_throughput.png)
 
@@ -92,9 +94,9 @@ Release build (`-O2`). Workload: 4000 CPU-bound tasks.
 | 6       | 22695     | 5.58x   |
 | 8       | 25101     | 6.17x   |
 
-Throughput scales near-linearly up to 4 workers — matching the 4 physical
-cores — then keeps gaining through 8 threads as hyper-threading fills the
-latency gaps in the (deliberately dependent) benchmark workload.
+Throughput scales near-linearly up to 4 workers, matching the 4 physical
+cores, and keeps rising, more slowly, through 8 hardware threads
+(hyper-threading).
 
 To reproduce — benchmarks must be built in Release mode, since an unoptimised
 build reports meaningless numbers:
@@ -109,15 +111,18 @@ cmake --build cmake-build-release --target benchmark
 
 - **Work-stealing, not lock-free.** Each queue is guarded by its own mutex.
   Work-stealing (the scheduling strategy) and lock-free (the synchronisation
-  mechanism) are independent concerns; per-queue locking captures most of the
-  contention benefit with code that is straightforward to reason about and
-  verify. A lock-free deque (e.g. Chase–Lev) would be a natural next step.
+  mechanism) are independent concerns. Per-queue locking was chosen because it
+  is straightforward to reason about and verify; it has not been benchmarked
+  against a lock-free deque (e.g. Chase–Lev), which would be a natural next step.
 - **Blocking inside tasks.** Like any fixed-size pool, blocking inside a task
   while waiting on other tasks from the same pool can deadlock if every worker
   blocks at once. Submit independent work, or collect results from outside the
   pool.
 - **Shutdown drains.** The destructor lets workers finish all queued tasks
   before exiting, rather than discarding pending work.
+- **Benchmark scope.** The benchmark measures scaling against a 1-worker run of
+  this scheduler. It does not yet compare against a single shared-queue pool or
+  `std::async`.
 
 ## Project layout
 
