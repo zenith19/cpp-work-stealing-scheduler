@@ -7,6 +7,12 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Threads REQUIRED)
 
+# Warnings are on for everything built here, but never fatal locally; CI is
+# where -Werror belongs (see .github/workflows/ci.yml).
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
 add_library(task_scheduler src/task_scheduler.cpp)
 target_include_directories(task_scheduler PUBLIC include)
 target_link_libraries(task_scheduler PUBLIC Threads::Threads)
