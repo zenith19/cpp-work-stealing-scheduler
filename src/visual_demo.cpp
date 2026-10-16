@@ -1,6 +1,5 @@
 #include "task_scheduler/task_scheduler.hpp"
 
-#include <array>
 #include <atomic>
 #include <chrono>
 #include <future>
@@ -22,7 +21,7 @@ int main() {
     const std::size_t workers = 4;
     ts::TaskScheduler pool(workers);
     std::mutex io;
-    std::array<std::atomic<int>, 8> ran{};
+    std::vector<std::atomic<int>> ran(workers);
 
     std::cout << "4 workers, 12 tasks of uneven length.\n"
               << "Some workers finish early and STEAL work from busier ones.\n\n";
@@ -33,7 +32,9 @@ int main() {
         int ms = 50 + (i % 4) * 70;  // 50,120,190,260 ms — deliberately uneven
         fs.push_back(pool.submit([&pool, &io, &ran, i, ms] {
             std::size_t w = pool.current_worker();
-            ran[w].fetch_add(1, std::memory_order_relaxed);
+            // Tasks only ever run on a worker, so this always holds; the
+            // check documents the invariant and keeps the indexing safe.
+            if (w < ran.size()) ran[w].fetch_add(1, std::memory_order_relaxed);
             {
                 std::lock_guard<std::mutex> lk(io);
                 std::cout << color(w) << "  worker " << w << reset
