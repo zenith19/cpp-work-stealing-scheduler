@@ -18,7 +18,8 @@ The pool runs N worker threads, **each with its own task queue**. A worker takes
 work from its own queue (LIFO, keeping recently-created work hot in cache) and,
 when that queue runs dry, steals a task from another worker's queue (from the
 opposite end, FIFO). Each queue has its own lock, so workers only contend on a
-lock when they touch the same queue.
+lock when they touch the same queue — and a thief never waits on that lock: if
+the owner holds it, the thief moves on to the next victim.
 
 ## Features
 
@@ -28,14 +29,17 @@ lock when they touch the same queue.
 - **Modern C++20** — `std::jthread`, `std::stop_token`, and a stop-token-aware
   condition-variable wait for cooperative cancellation.
 - **Graceful shutdown** — queued tasks are drained before workers exit; threads
-  join automatically via RAII.
+  join automatically via RAII, or explicitly via `shutdown()`.
 - **Observability** — `current_worker()` and `steal_count()` for introspection.
-- **Tested** — unit tests run through CTest, and CI also runs the suite under
-  ThreadSanitizer (no data races reported).
+- **Tested** — unit tests run through CTest, and CI runs the suite under
+  ThreadSanitizer and Address/UndefinedBehavior sanitizers (all clean).
 
 ## Quick start
 
-Requires a C++20 compiler (GCC 11+ / Clang 14+) and CMake 3.20+.
+Requires CMake 3.20+ and a C++20 toolchain with `std::jthread` and
+`std::stop_token`: GCC 11+, or Clang with libstdc++. libc++ only gained
+`std::jthread` in LLVM 18, so Clang paired with libc++ needs that or newer.
+CI builds with GCC on Ubuntu.
 
 ```bash
 cmake -S . -B build
@@ -74,6 +78,11 @@ int result = future.get();   // 42
 `submit` accepts any callable and returns a `std::future` of its result type.
 If a task throws, the exception is re-thrown when you call `.get()`.
 
+The destructor drains queued work and joins the workers. Call `shutdown()` if
+you want that to happen while the pool object is still alive; afterwards
+`submit` from outside the pool throws rather than handing back a future that
+would never become ready.
+
 ## Benchmarks
 
 Measured on an Intel Core i7-1165G7 (4 physical cores / 8 threads), Linux,
@@ -86,26 +95,21 @@ with 1 worker.
 
 ![Parallel speedup](docs/scaling_speedup.png)
 
-| workers | tasks/sec | speedup |
-| ------: | --------: | ------: |
-| 1       | 4067      | 1.00x   |
-| 2       | 8299      | 2.04x   |
-| 4       | 16548     | 4.07x   |
-| 6       | 22695     | 5.58x   |
-| 8       | 25101     | 6.17x   |
+Full table and methodology: [docs/results.md](docs/results.md).
 
 Throughput scales near-linearly up to 4 workers, matching the 4 physical
 cores, and keeps rising, more slowly, through 8 hardware threads
 (hyper-threading).
 
-To reproduce — benchmarks must be built in Release mode, since an unoptimised
-build reports meaningless numbers:
+To reproduce — this regenerates `docs/results.md` and both charts from one
+benchmark run, so the table and the pictures cannot drift apart:
 
 ```bash
-cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
-cmake --build cmake-build-release --target benchmark
-./cmake-build-release/benchmark
+./scripts/run_benchmarks.sh
 ```
+
+It needs `python3` with `matplotlib`. Pass `--cpu` / `--cores` / `--threads`
+when publishing numbers measured on different hardware.
 
 ## Design notes
 
@@ -123,6 +127,24 @@ cmake --build cmake-build-release --target benchmark
 - **Benchmark scope.** The benchmark measures scaling against a 1-worker run of
   this scheduler. It does not yet compare against a single shared-queue pool or
   `std::async`.
+- **Benchmark noise.** The single-worker baseline is stable, but the
+  hyper-threaded figures move by 10-20% between runs on thermally-constrained
+  hardware as all-core turbo clocks settle. Read those rows as a range.
+- **Idle workers don't poll.** A worker with no work blocks on a condition
+  variable until a task is enqueued, rather than waking periodically to scan
+  the queues. An idle 8-worker pool burns no measurable CPU. Enqueue only
+  touches that condition variable when a worker is actually asleep, so the
+  busy path stays on the per-queue locks alone.
+
+## Roadmap
+
+- Benchmark a lock-free Chase–Lev deque against the per-queue-mutex design.
+- Add `std::async` and single-shared-queue baselines to the benchmark, so the
+  numbers compare against something other than this scheduler's own 1-worker run.
+- Interleave benchmark repetitions across worker counts, rather than running all
+  repetitions of one worker count together, to spread thermal drift evenly.
+- `shutdown_now()` — stop and discard pending work, alongside the draining
+  `shutdown()` that exists today.
 
 ## Project layout
 
@@ -132,6 +154,7 @@ src/                      implementation, demo, visual demo
 tests/                    unit tests (CTest)
 benchmarks/               throughput benchmark
 docs/                     architecture diagram, benchmark charts, results
+scripts/                  benchmark runner + chart generation
 ```
 
 ## License
