@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1280" width="1800" height="1280" role="img" aria-labelledby="title desc">
+  <title id="title">TaskScheduler architecture</title>
+  <desc id="desc">Submissions enter through the public API and are enqueued onto per-worker queues. Each worker thread owns one WorkStealingQueue, taking its own work LIFO from the front; an idle worker steals from another queue's back.</desc>
+
+
+  <rect x="0" y="0" width="1800" height="1280" fill="#f6f7fb"/>
+  <rect x="70" y="40" width="1660" height="1200" rx="22" fill="#fdfdff" stroke="#e4e7f2" stroke-width="2"/>
+
+  <!-- header -->
+  <path d="M 70 62 a 22 22 0 0 1 22 -22 h 1616 a 22 22 0 0 1 22 22 v 96 h -1660 z" fill="#6c5ce7"/>
+  <text x="900" y="122" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="46" font-weight="bold" fill="#ffffff">TaskScheduler</text>
+
+  <!-- public API -->
+  <rect x="140" y="200" width="1520" height="190" rx="14" fill="#eef1f8" stroke="#dfe3ee" stroke-width="2"/>
+  <text x="900" y="250" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="24" font-weight="bold" letter-spacing="2" fill="#3c4257">PUBLIC API</text>
+
+  <rect x="356" y="288" width="324" height="66" rx="12" fill="#ffffff" stroke="#6c5ce7" stroke-width="2"/>
+  <text x="518" y="330" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="20" fill="#4a3aea">submit(task) → future&lt;T&gt;</text>
+
+  <rect x="700" y="288" width="156" height="66" rx="12" fill="#ffffff" stroke="#6c5ce7" stroke-width="2"/>
+  <text x="778" y="330" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="20" fill="#4a3aea">shutdown()</text>
+
+  <rect x="876" y="288" width="108" height="66" rx="12" fill="#ffffff" stroke="#6c5ce7" stroke-width="2"/>
+  <text x="930" y="330" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="20" fill="#4a3aea">size()</text>
+
+  <rect x="1004" y="288" width="228" height="66" rx="12" fill="#ffffff" stroke="#6c5ce7" stroke-width="2"/>
+  <text x="1118" y="330" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="20" fill="#4a3aea">current_worker()</text>
+
+  <rect x="1252" y="288" width="192" height="66" rx="12" fill="#ffffff" stroke="#6c5ce7" stroke-width="2"/>
+  <text x="1348" y="330" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="20" fill="#4a3aea">steal_count()</text>
+
+  <!-- enqueue -->
+  <line x1="900" y1="390" x2="900" y2="462" stroke="#5a6478" stroke-width="4"/>
+  <polygon points="900,478 890,456 910,456" fill="#5a6478"/>
+  <text x="926" y="440" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="22" fill="#5a6478">enqueue</text>
+
+  <!-- workers + queues -->
+  <rect x="140" y="498" width="1520" height="636" rx="14" fill="#f8f9fd" stroke="#e4e7f2" stroke-width="2"/>
+  <text x="900" y="548" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="24" font-weight="bold" letter-spacing="1" fill="#3c4257">WORKER THREADS · ONE QUEUE EACH</text>
+
+  <rect x="300" y="582" width="270" height="110" rx="12" fill="#2f6fe4"/>
+  <text x="435" y="626" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#ffffff">Worker 0</text>
+  <text x="435" y="660" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="19" fill="#dbe7fb">std::jthread</text>
+
+  <rect x="610" y="582" width="270" height="110" rx="12" fill="#2f6fe4"/>
+  <text x="745" y="626" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#ffffff">Worker 1</text>
+  <text x="745" y="660" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="19" fill="#dbe7fb">std::jthread</text>
+
+  <rect x="920" y="582" width="270" height="110" rx="12" fill="#2f6fe4"/>
+  <text x="1055" y="626" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#ffffff">Worker 2</text>
+  <text x="1055" y="660" text-anchor="middle" font-family="DejaVu Sans Mono, Consolas, monospace" font-size="19" fill="#dbe7fb">std::jthread</text>
+
+  <rect x="1230" y="582" width="270" height="110" rx="12" fill="#aeb6c6" stroke="#8d95a8" stroke-width="2" stroke-dasharray="10 8"/>
+  <text x="1365" y="626" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="26" font-weight="bold" fill="#ffffff">…</text>
+  <text x="1365" y="660" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="19" fill="#f2f4f8">Worker N</text>
+
+  <line x1="435" y1="692" x2="435" y2="742" stroke="#5a6478" stroke-width="4"/>
+  <polygon points="435,758 425,736 445,736" fill="#5a6478"/>
+  <line x1="745" y1="692" x2="745" y2="742" stroke="#5a6478" stroke-width="4"/>
+  <polygon points="745,758 735,736 755,736" fill="#5a6478"/>
+  <line x1="1055" y1="692" x2="1055" y2="742" stroke="#5a6478" stroke-width="4"/>
+  <polygon points="1055,758 1045,736 1065,736" fill="#5a6478"/>
+
+  <rect x="300" y="762" width="270" height="110" rx="12" fill="#0f9d6b"/>
+  <text x="435" y="806" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" font-weight="bold" fill="#ffffff">WorkStealingQueue</text>
+  <text x="435" y="838" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="19" fill="#d8f5e9">own end: LIFO</text>
+
+  <rect x="610" y="762" width="270" height="110" rx="12" fill="#0f9d6b"/>
+  <text x="745" y="806" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" font-weight="bold" fill="#ffffff">WorkStealingQueue</text>
+  <text x="745" y="838" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="19" fill="#d8f5e9">own end: LIFO</text>
+
+  <rect x="920" y="762" width="270" height="110" rx="12" fill="#0f9d6b"/>
+  <text x="1055" y="806" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" font-weight="bold" fill="#ffffff">WorkStealingQueue</text>
+  <text x="1055" y="838" text-anchor="middle" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="19" fill="#d8f5e9">own end: LIFO</text>
+
+  <!-- steal arcs: an idle worker takes from another queue's back -->
+  <path d="M 450 884 C 540 946, 650 946, 726 898" fill="none" stroke="#f0a020" stroke-width="5" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <polygon points="742,884 722,906 713,890" fill="#f0a020"/>
+
+  <path d="M 760 884 C 850 946, 960 946, 1036 898" fill="none" stroke="#f0a020" stroke-width="5" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <polygon points="1052,884 1032,906 1023,890" fill="#f0a020"/>
+
+  <path d="M 1055 892 C 940 982, 560 982, 452 906" fill="none" stroke="#f0a020" stroke-width="5" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <polygon points="436,892 465,899 455,914" fill="#f0a020"/>
+
+  <!-- legend -->
+  <rect x="220" y="1006" width="1360" height="100" rx="12" fill="#ffffff" stroke="#e4e7f2" stroke-width="2"/>
+  <rect x="286" y="1042" width="34" height="30" rx="6" fill="#2f6fe4"/>
+  <text x="336" y="1065" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" fill="#3c4257">Worker thread</text>
+  <rect x="588" y="1042" width="34" height="30" rx="6" fill="#0f9d6b"/>
+  <text x="638" y="1065" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" fill="#3c4257">Per-worker queue</text>
+  <line x1="950" y1="1057" x2="1026" y2="1057" stroke="#f0a020" stroke-width="5" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <text x="1044" y="1065" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" fill="#3c4257">Steal (never blocks)</text>
+  <line x1="1342" y1="1057" x2="1404" y2="1057" stroke="#5a6478" stroke-width="5"/>
+  <polygon points="1420,1057 1398,1047 1398,1067" fill="#5a6478"/>
+  <text x="1438" y="1065" font-family="DejaVu Sans, Helvetica, Arial, sans-serif" font-size="23" fill="#3c4257">Task flow</text>
+</svg>
