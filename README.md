@@ -12,7 +12,7 @@ others when it runs out of work.
 
 ## Architecture
 
-![Architecture](docs/architecture_diagram.png)
+![Architecture](docs/architecture_diagram.svg)
 
 The pool runs N worker threads, **each with its own task queue**. A worker takes
 work from its own queue (LIFO, keeping recently-created work hot in cache) and,
@@ -78,28 +78,82 @@ int result = future.get();   // 42
 `submit` accepts any callable and returns a `std::future` of its result type.
 If a task throws, the exception is re-thrown when you call `.get()`.
 
+The pool can also be asked what it is doing, which is mostly useful in tests
+and demos:
+
+```cpp
+pool.size();          // number of worker threads
+pool.steal_count();   // tasks taken from another worker's queue so far
+
+// Inside a task, which worker is running it:
+pool.submit([&pool] { return pool.current_worker(); });
+
+// Outside the pool, there is no answer:
+pool.current_worker() == ts::TaskScheduler::no_worker;   // true on main
+```
+
 The destructor drains queued work and joins the workers. Call `shutdown()` if
 you want that to happen while the pool object is still alive; afterwards
 `submit` from outside the pool throws rather than handing back a future that
 would never become ready.
 
+## Using it in your project
+
+The build installs a `ts::task_scheduler` target with a CMake package config,
+so a consuming project can pull it in three ways.
+
+Already installed somewhere:
+
+```cmake
+find_package(task_scheduler 1.0 REQUIRED)
+target_link_libraries(your_app PRIVATE ts::task_scheduler)
+```
+
+Fetched at configure time, with no separate install step:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(task_scheduler
+    GIT_REPOSITORY https://github.com/zenith19/cpp-work-stealing-scheduler.git
+    GIT_TAG        main)
+FetchContent_MakeAvailable(task_scheduler)
+target_link_libraries(your_app PRIVATE ts::task_scheduler)
+```
+
+Or vendored as a subdirectory:
+
+```cmake
+add_subdirectory(third_party/cpp-work-stealing-scheduler)
+target_link_libraries(your_app PRIVATE ts::task_scheduler)
+```
+
+Either of the last two builds the library alone — the demos, benchmark and
+tests are skipped unless this is the top-level project, or you set
+`-DTASK_SCHEDULER_BUILD_EXTRAS=ON`.
+
+To install it yourself:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix /your/prefix
+```
+
 ## Benchmarks
 
-Measured on an Intel Core i7-1165G7 (4 physical cores / 8 threads), Linux,
-GCC 13.3, CMake Release build. Workload: 4000 CPU-bound tasks, each a
-100,000-iteration arithmetic loop. Each worker count is run 3 times and the
-best throughput is kept. Speedup is relative to the same scheduler running
-with 1 worker.
+4000 CPU-bound tasks spread across a growing pool, best of three runs per
+worker count. The hardware, compiler and full table live in
+[docs/results.md](docs/results.md) — `scripts/run_benchmarks.sh` regenerates
+that file and these two charts from the same run, so they cannot disagree.
 
 ![Throughput scaling](docs/scaling_throughput.png)
 
 ![Parallel speedup](docs/scaling_speedup.png)
 
-Full table and methodology: [docs/results.md](docs/results.md).
-
-Throughput scales near-linearly up to 4 workers, matching the 4 physical
-cores, and keeps rising, more slowly, through 8 hardware threads
-(hyper-threading).
+Throughput scales close to linearly up to 4 workers, matching the 4 physical
+cores, and keeps climbing more slowly through 8 hardware threads
+(hyper-threading). Read the hyper-threaded rows as a range rather than a fixed
+number — the results file explains why.
 
 To reproduce — this regenerates `docs/results.md` and both charts from one
 benchmark run, so the table and the pictures cannot drift apart:
@@ -155,6 +209,8 @@ tests/                    unit tests (CTest)
 benchmarks/               throughput benchmark
 docs/                     architecture diagram, benchmark charts, results
 scripts/                  benchmark runner + chart generation
+cmake/                    package config template for find_package()
+.github/workflows/        CI: build, ThreadSanitizer, Address/UB sanitizer
 ```
 
 ## License
