@@ -66,12 +66,20 @@ void TaskScheduler::enqueue(std::function<void()> task) {
     // wakes early finds nothing and loops.
     pending_.fetch_add(1, std::memory_order_seq_cst);
 
-    if (is_own_worker) {
-        queues_[this_index_]->push(std::move(task));  // keep our own work local
-    } else {
-        std::size_t i =
-            next_queue_.fetch_add(1, std::memory_order_relaxed) % queues_.size();
-        queues_[i]->push(std::move(task));
+    // The count has to come back down if the push throws. A pending_ that
+    // never reaches zero leaves every idle worker spinning on a predicate
+    // that is permanently true, which is far worse than the failed submit.
+    try {
+        if (is_own_worker) {
+            queues_[this_index_]->push(std::move(task));  // keep our work local
+        } else {
+            std::size_t i = next_queue_.fetch_add(1, std::memory_order_relaxed) %
+                            queues_.size();
+            queues_[i]->push(std::move(task));
+        }
+    } catch (...) {
+        pending_.fetch_sub(1, std::memory_order_seq_cst);
+        throw;
     }
 
     // This load and the sleepers_ increment in worker_loop are a Dekker pair,
