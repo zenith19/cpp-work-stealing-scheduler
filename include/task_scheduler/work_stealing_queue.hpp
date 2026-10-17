@@ -28,8 +28,13 @@ public:
         return true;
     }
 
-    bool steal(Task& task) {          // thief takes from the back
-        std::lock_guard<std::mutex> lock(mutex_);
+    // A thief takes from the back, and never blocks: if the owner (or another
+    // thief) holds the lock, we report failure rather than queueing up behind
+    // them. The caller has other victims to try, and waiting on a lock is the
+    // opposite of what stealing is for.
+    bool try_steal(Task& task) {
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (!lock.owns_lock()) return false;
         if (deque_.empty()) return false;
         task = std::move(deque_.back());
         deque_.pop_back();

@@ -12,8 +12,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # -Werror lives here rather than in CMakeLists.txt, so a local build
+      # still reports warnings without refusing to compile.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS=-Werror
 
       - name: Build
         run: cmake --build build
@@ -33,10 +35,36 @@ jobs:
           -DCMAKE_CXX_FLAGS="-fsanitize=thread -g -O1"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=thread"
 
-      - name: Build tests
-        run: cmake --build build-tsan --target unit_tests
+      - name: Build
+        run: cmake --build build-tsan
 
-      - name: Run tests under ThreadSanitizer
-        run: ./build-tsan/unit_tests
+      # Through ctest, so any test added with add_test() is sanitized too.
+      # setarch -R disables ASLR: recent kernels hand out mappings that
+      # ThreadSanitizer rejects outright ("unexpected memory mapping").
+      # --repeat is for the idle-wait path, where a lost wakeup would be
+      # intermittent rather than reproducible.
+      - name: Test under ThreadSanitizer
+        run: setarch -R ctest --test-dir build-tsan --output-on-failure --repeat until-fail:10
         env:
           TSAN_OPTIONS: halt_on_error=1
+
+  address-sanitizer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure (Address/UB Sanitizer)
+        run: >
+          cmake -S . -B build-asan
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-asan
+
+      - name: Test under Address/UB Sanitizer
+        run: ctest --test-dir build-asan --output-on-failure
+        env:
+          ASAN_OPTIONS: halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1

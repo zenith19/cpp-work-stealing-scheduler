@@ -1,9 +1,11 @@
 #include "task_scheduler/task_scheduler.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <future>
 #include <iostream>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -76,6 +78,83 @@ void test_void_tasks() {
     CHECK(c.load() == 100);
 }
 
+// Work submitted from inside a task lands on that worker's own queue, so the
+// only way the other workers get any of it is by stealing. Tasks are long
+// enough that one worker cannot plausibly finish them all alone.
+void test_stealing_happens() {
+    ts::TaskScheduler pool(4);
+    std::vector<std::future<void>> inner;
+
+    pool.submit([&pool, &inner] {
+        for (int i = 0; i < 12; ++i)
+            inner.push_back(pool.submit([] {
+                std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            }));
+    }).get();
+
+    for (auto& f : inner) f.get();
+    CHECK(pool.steal_count() > 0);
+}
+
+void test_concurrent_submitters() {
+    ts::TaskScheduler pool(4);
+    std::atomic<int> ran{0};
+    const int threads = 4, per_thread = 500;
+
+    std::vector<std::jthread> submitters;
+    for (int t = 0; t < threads; ++t)
+        submitters.emplace_back([&pool, &ran] {
+            std::vector<std::future<void>> fs;
+            for (int i = 0; i < per_thread; ++i)
+                fs.push_back(pool.submit(
+                    [&ran] { ran.fetch_add(1, std::memory_order_relaxed); }));
+            for (auto& f : fs) f.get();
+        });
+    submitters.clear();  // join
+
+    CHECK(ran.load() == threads * per_thread);
+}
+
+void test_recursive_submit() {
+    ts::TaskScheduler pool(3);
+    auto outer = pool.submit([&pool] {
+        auto child = pool.submit([] { return 21; });
+        return child.get() * 2;
+    });
+    CHECK(outer.get() == 42);
+}
+
+void test_current_worker_reporting() {
+    ts::TaskScheduler pool(3);
+    CHECK(pool.current_worker() == ts::TaskScheduler::no_worker);
+    auto f = pool.submit([&pool] { return pool.current_worker(); });
+    CHECK(f.get() < pool.size());
+}
+
+void test_submit_after_shutdown_throws() {
+    ts::TaskScheduler pool(2);
+    std::atomic<int> ran{0};
+    for (int i = 0; i < 100; ++i)
+        pool.submit([&ran] { ran.fetch_add(1, std::memory_order_relaxed); });
+
+    pool.shutdown();
+    CHECK(ran.load() == 100);  // shutdown drains before returning
+
+    bool threw = false;
+    try {
+        pool.submit([] {});
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+
+    // Idempotent, and safe from several threads at once.
+    std::vector<std::jthread> closers;
+    for (int i = 0; i < 4; ++i)
+        closers.emplace_back([&pool] { pool.shutdown(); });
+    closers.clear();
+}
+
 }  // namespace
 
 int main() {
@@ -85,6 +164,11 @@ int main() {
     test_shutdown_drains_pending();
     test_zero_threads_is_safe();
     test_void_tasks();
+    test_stealing_happens();
+    test_concurrent_submitters();
+    test_recursive_submit();
+    test_current_worker_reporting();
+    test_submit_after_shutdown_throws();
 
     std::cout << (g_checks - g_failures) << "/" << g_checks << " checks passed\n";
     if (g_failures > 0) {
