@@ -96,23 +96,38 @@ void test_stealing_happens() {
     CHECK(pool.steal_count() > 0);
 }
 
+// Several external threads submitting at once. Each task owns one slot and
+// writes only to it, so the check is per task rather than a running total: a
+// total would still come out right if one task ran twice and another never
+// ran at all.
 void test_concurrent_submitters() {
     ts::TaskScheduler pool(4);
-    std::atomic<int> ran{0};
-    const int threads = 4, per_thread = 500;
+    const int producers = 8, per_producer = 1000;
+    const int total = producers * per_producer;
+    std::vector<std::atomic<int>> ran(total);
 
     std::vector<std::jthread> submitters;
-    for (int t = 0; t < threads; ++t)
-        submitters.emplace_back([&pool, &ran] {
+    for (int p = 0; p < producers; ++p)
+        submitters.emplace_back([&pool, &ran, p] {
             std::vector<std::future<void>> fs;
-            for (int i = 0; i < per_thread; ++i)
+            fs.reserve(per_producer);
+            for (int i = 0; i < per_producer; ++i) {
+                const int id = p * per_producer + i;
                 fs.push_back(pool.submit(
-                    [&ran] { ran.fetch_add(1, std::memory_order_relaxed); }));
+                    [&ran, id] { ran[id].fetch_add(1, std::memory_order_relaxed); }));
+            }
             for (auto& f : fs) f.get();
         });
     submitters.clear();  // join
 
-    CHECK(ran.load() == threads * per_thread);
+    int missing = 0, repeated = 0;
+    for (auto& slot : ran) {
+        const int n = slot.load(std::memory_order_relaxed);
+        if (n == 0) ++missing;
+        if (n > 1) ++repeated;
+    }
+    CHECK(missing == 0);
+    CHECK(repeated == 0);
 }
 
 void test_recursive_submit() {
@@ -122,6 +137,29 @@ void test_recursive_submit() {
         return child.get() * 2;
     });
     CHECK(outer.get() == 42);
+}
+
+// Tasks that spawn more work while the pool is winding down. A worker is
+// allowed to submit during the drain — only outside submitters are rejected —
+// and no worker exits until every queue is empty, so the children have to run
+// even though they were created after shutdown began. Nothing waits on the
+// parents here: the point is to have work still in flight when the destructor
+// starts.
+void test_nested_submit_during_shutdown() {
+    const int parents = 50;
+    std::atomic<int> ran{0};
+    {
+        ts::TaskScheduler pool(4);
+        for (int i = 0; i < parents; ++i)
+            pool.submit([&pool, &ran] {
+                ran.fetch_add(1, std::memory_order_relaxed);
+                for (int c = 0; c < 2; ++c)
+                    pool.submit([&ran] {
+                        ran.fetch_add(1, std::memory_order_relaxed);
+                    });
+            });
+    }  // drains parents and whatever they spawned on the way out
+    CHECK(ran.load() == parents * 3);
 }
 
 void test_current_worker_reporting() {
@@ -167,6 +205,7 @@ int main() {
     test_stealing_happens();
     test_concurrent_submitters();
     test_recursive_submit();
+    test_nested_submit_during_shutdown();
     test_current_worker_reporting();
     test_submit_after_shutdown_throws();
 
