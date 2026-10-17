@@ -143,8 +143,9 @@ cmake --install build --prefix /your/prefix
 
 ## Benchmarks
 
-4000 CPU-bound tasks spread across a growing pool, best of three runs per
-worker count. The hardware, compiler and full table live in
+4000 CPU-bound tasks spread across a growing pool, ten runs per worker count
+with the median reported and the slowest and fastest run shown alongside it.
+The hardware, compiler and full table live in
 [docs/results.md](docs/results.md) — `scripts/run_benchmarks.sh` regenerates
 that file and these two charts from the same run, so they cannot disagree.
 
@@ -152,10 +153,11 @@ that file and these two charts from the same run, so they cannot disagree.
 
 ![Parallel speedup](docs/scaling_speedup.png)
 
-Throughput scales close to linearly up to 4 workers, matching the 4 physical
-cores, and keeps climbing more slowly through 8 hardware threads
-(hyper-threading). Read the hyper-threaded rows as a range rather than a fixed
-number — the results file explains why.
+Throughput tracks the ideal line closely through the 4 physical cores, then
+keeps climbing with diminishing returns across all 8 hardware threads. The
+error bars are the slowest and fastest of the ten runs: tight while the pool
+fits in physical cores, wide once it does not, as sustained all-core turbo
+clocks fall away.
 
 To reproduce — this regenerates `docs/results.md` and both charts from one
 benchmark run, so the table and the pictures cannot drift apart:

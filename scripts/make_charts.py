@@ -20,20 +20,26 @@ BLUE, GREY, ORANGE = "#4a3aea", "#9aa0a6", "#d2691e"
 
 
 def parse(text):
-    """Pull the workload header and the (workers, tasks/sec, speedup) rows."""
+    """Pull the headers and the (workers, median, min, max, speedup) rows."""
     workload = re.search(r"workload:\s*(\d+)\s*tasks,\s*(\d+)\s*work-units", text)
     if not workload:
         sys.exit("could not find the workload line in the benchmark output")
 
+    sampling = re.search(r"sampling:\s*(\d+)\s*runs", text)
+    if not sampling:
+        sys.exit("could not find the sampling line in the benchmark output")
+
     rows = [
-        (int(w), float(rate), float(speedup))
-        for w, rate, speedup in re.findall(
-            r"^\s*(\d+)\s+([\d.]+)\s+([\d.]+)x\s*$", text, re.MULTILINE
+        (int(w), float(med), float(lo), float(hi), float(speedup))
+        for w, med, lo, hi, speedup in re.findall(
+            r"^\s*(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)x\s*$",
+            text, re.MULTILINE
         )
     ]
     if not rows:
         sys.exit("could not find any result rows in the benchmark output")
-    return (int(workload.group(1)), int(workload.group(2))), rows
+    return ((int(workload.group(1)), int(workload.group(2))),
+            int(sampling.group(1)), rows)
 
 
 def style(ax):
@@ -53,14 +59,19 @@ def core_marker(ax, x, cores):
 def throughput_chart(rows, cores, cpu, threads, out):
     workers = [r[0] for r in rows]
     rates = [r[1] for r in rows]
+    lo = [r[1] - r[2] for r in rows]
+    hi = [r[3] - r[1] for r in rows]
     fig, ax = plt.subplots(figsize=(12, 7.5), dpi=100)
     style(ax)
 
     ideal = [rates[0] * w for w in workers]
     ax.plot(workers, ideal, color=GREY, linestyle="--", linewidth=2.5,
             label="ideal linear scaling")
-    ax.plot(workers, rates, color=BLUE, marker="o", markersize=12, linewidth=3,
-            label="measured")
+    # Error bars span the slowest and fastest run, so the reader sees the
+    # spread rather than a single number standing in for it.
+    ax.errorbar(workers, rates, yerr=[lo, hi], color=BLUE, marker="o",
+                markersize=12, linewidth=3, elinewidth=2.5, capsize=9,
+                capthick=2.5, label="median (bars: min-max)")
 
     if cores in workers:
         core_marker(ax, cores, cores)
@@ -82,7 +93,7 @@ def throughput_chart(rows, cores, cpu, threads, out):
 
 def speedup_chart(rows, cores, out):
     workers = [r[0] for r in rows]
-    speedups = [r[2] for r in rows]
+    speedups = [r[4] for r in rows]
     pos = range(len(workers))
     fig, ax = plt.subplots(figsize=(12, 7.5), dpi=100)
     style(ax)
@@ -114,8 +125,9 @@ def speedup_chart(rows, cores, out):
     plt.close(fig)
 
 
-def results_md(workload, rows, cpu, cores, threads, compiler, out):
+def results_md(workload, reps, rows, cpu, cores, threads, compiler, out):
     count, work = workload
+    spread = max((r[3] - r[2]) / r[1] for r in rows) * 100
     lines = [
         "# Benchmark results",
         "",
@@ -123,26 +135,36 @@ def results_md(workload, rows, cpu, cores, threads, compiler, out):
         "",
         f"Hardware: {cpu} ({cores} physical cores / {threads} threads), Linux, "
         f"{compiler}, CMake Release build.",
-        f"Workload: {count} CPU-bound tasks, {work} work-units each. "
-        "Best of 3 runs per worker count.",
-        "Speedup is relative to the same scheduler running with 1 worker.",
+        f"Workload: {count} CPU-bound tasks, {work} work-units each.",
+        f"Sampling: {reps} runs per worker count; the median is reported, with "
+        "the slowest and",
+        "fastest run alongside it. Speedup is median relative to the "
+        "1-worker median.",
         "",
-        "| workers | tasks/sec | speedup |",
-        "|--------:|----------:|--------:|",
+        "| workers | median tasks/sec | min | max | speedup |",
+        "|--------:|-----------------:|----:|----:|--------:|",
     ]
-    for w, rate, speedup in rows:
-        lines.append(f"| {w:<7} | {rate:<9.0f} | {speedup:.2f}x   |")
+    for w, med, lo, hi, speedup in rows:
+        lines.append(f"| {w:<7} | {med:<16.0f} | {lo:.0f} | {hi:.0f} "
+                     f"| {speedup:.2f}x |")
     lines += [
         "",
-        f"Near-linear scaling to {cores} workers (matching the {cores} physical",
-        f"cores), with continued, smaller gains through {threads} hardware threads",
-        "(hyper-threading).",
+        f"Throughput tracks the ideal line closely through the {cores} physical",
+        f"cores, then keeps climbing with diminishing returns across all "
+        f"{threads}",
+        "hardware threads (hyper-threading). Where a median sits slightly above",
+        "the ideal line, that is the 1-worker baseline drifting, not "
+        "super-linear",
+        "scaling — see the spread below.",
         "",
-        "One caveat on reading these: the single-worker baseline is stable run to",
-        f"run, but the figures above {cores} workers move by 10-20% between",
-        "invocations on thermally-constrained hardware, because sustained",
-        "all-core turbo clocks drop as the package heats up. Treat the",
-        "hyper-threaded rows as a range, not a fixed number.",
+        "The min and max columns are the point of this table. The widest row "
+        f"spans {spread:.0f}% of",
+        "its own median, because sustained all-core turbo clocks fall as the "
+        "package heats",
+        "up on thermally-constrained hardware. A best-of-N figure would report "
+        "only the",
+        "luckiest run and hide that entirely, so the median is reported "
+        "instead.",
         "",
     ]
     out.write_text("\n".join(lines))
@@ -157,13 +179,13 @@ def main():
     ap.add_argument("--docs", type=Path, required=True)
     args = ap.parse_args()
 
-    workload, rows = parse(sys.stdin.read())
+    workload, reps, rows = parse(sys.stdin.read())
     args.docs.mkdir(parents=True, exist_ok=True)
 
     throughput_chart(rows, args.cores, args.cpu, args.threads,
                      args.docs / "scaling_throughput.png")
     speedup_chart(rows, args.cores, args.docs / "scaling_speedup.png")
-    results_md(workload, rows, args.cpu, args.cores, args.threads,
+    results_md(workload, reps, rows, args.cpu, args.cores, args.threads,
                args.compiler, args.docs / "results.md")
 
     print(f"wrote {args.docs}/results.md, scaling_throughput.png, "

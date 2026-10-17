@@ -139,6 +139,29 @@ void test_recursive_submit() {
     CHECK(outer.get() == 42);
 }
 
+// Tasks that spawn more work while the pool is winding down. A worker is
+// allowed to submit during the drain — only outside submitters are rejected —
+// and no worker exits until every queue is empty, so the children have to run
+// even though they were created after shutdown began. Nothing waits on the
+// parents here: the point is to have work still in flight when the destructor
+// starts.
+void test_nested_submit_during_shutdown() {
+    const int parents = 50;
+    std::atomic<int> ran{0};
+    {
+        ts::TaskScheduler pool(4);
+        for (int i = 0; i < parents; ++i)
+            pool.submit([&pool, &ran] {
+                ran.fetch_add(1, std::memory_order_relaxed);
+                for (int c = 0; c < 2; ++c)
+                    pool.submit([&ran] {
+                        ran.fetch_add(1, std::memory_order_relaxed);
+                    });
+            });
+    }  // drains parents and whatever they spawned on the way out
+    CHECK(ran.load() == parents * 3);
+}
+
 void test_current_worker_reporting() {
     ts::TaskScheduler pool(3);
     CHECK(pool.current_worker() == ts::TaskScheduler::no_worker);
@@ -182,6 +205,7 @@ int main() {
     test_stealing_happens();
     test_concurrent_submitters();
     test_recursive_submit();
+    test_nested_submit_during_shutdown();
     test_current_worker_reporting();
     test_submit_after_shutdown_throws();
 
