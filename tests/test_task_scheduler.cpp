@@ -96,23 +96,38 @@ void test_stealing_happens() {
     CHECK(pool.steal_count() > 0);
 }
 
+// Several external threads submitting at once. Each task owns one slot and
+// writes only to it, so the check is per task rather than a running total: a
+// total would still come out right if one task ran twice and another never
+// ran at all.
 void test_concurrent_submitters() {
     ts::TaskScheduler pool(4);
-    std::atomic<int> ran{0};
-    const int threads = 4, per_thread = 500;
+    const int producers = 8, per_producer = 1000;
+    const int total = producers * per_producer;
+    std::vector<std::atomic<int>> ran(total);
 
     std::vector<std::jthread> submitters;
-    for (int t = 0; t < threads; ++t)
-        submitters.emplace_back([&pool, &ran] {
+    for (int p = 0; p < producers; ++p)
+        submitters.emplace_back([&pool, &ran, p] {
             std::vector<std::future<void>> fs;
-            for (int i = 0; i < per_thread; ++i)
+            fs.reserve(per_producer);
+            for (int i = 0; i < per_producer; ++i) {
+                const int id = p * per_producer + i;
                 fs.push_back(pool.submit(
-                    [&ran] { ran.fetch_add(1, std::memory_order_relaxed); }));
+                    [&ran, id] { ran[id].fetch_add(1, std::memory_order_relaxed); }));
+            }
             for (auto& f : fs) f.get();
         });
     submitters.clear();  // join
 
-    CHECK(ran.load() == threads * per_thread);
+    int missing = 0, repeated = 0;
+    for (auto& slot : ran) {
+        const int n = slot.load(std::memory_order_relaxed);
+        if (n == 0) ++missing;
+        if (n > 1) ++repeated;
+    }
+    CHECK(missing == 0);
+    CHECK(repeated == 0);
 }
 
 void test_recursive_submit() {

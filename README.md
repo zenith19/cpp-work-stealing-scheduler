@@ -33,6 +33,8 @@ the owner holds it, the thief moves on to the next victim.
 - **Observability** — `current_worker()` and `steal_count()` for introspection.
 - **Tested** — unit tests run through CTest, and CI runs the suite under
   ThreadSanitizer and Address/UndefinedBehavior sanitizers (all clean).
+  Concurrent submission is covered by 8 producer threads submitting 8000 tasks,
+  each asserted to run exactly once.
 
 ## Quick start
 
