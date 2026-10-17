@@ -185,9 +185,12 @@ when publishing numbers measured on different hardware.
 - **Benchmark scope.** The benchmark measures scaling against a 1-worker run of
   this scheduler. It does not yet compare against a single shared-queue pool or
   `std::async`.
-- **Benchmark noise.** The single-worker baseline is stable, but the
-  hyper-threaded figures move by 10-20% between runs on thermally-constrained
-  hardware as all-core turbo clocks settle. Read those rows as a range.
+- **Benchmark noise.** The single-worker baseline is stable; the hyper-threaded
+  figures move between runs on thermally-constrained hardware as all-core turbo
+  clocks settle. That is why the benchmark reports a median across ten runs with
+  the slowest and fastest alongside it, rather than a best-of-N that would show
+  only the luckiest. The measured spread is in
+  [docs/results.md](docs/results.md), not quoted here.
 - **Idle workers don't poll.** A worker with no work blocks on a condition
   variable until a task is enqueued, rather than waking periodically to scan
   the queues. An idle 8-worker pool burns no measurable CPU. Enqueue only
